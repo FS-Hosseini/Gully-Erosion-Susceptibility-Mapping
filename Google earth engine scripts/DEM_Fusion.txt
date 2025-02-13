@@ -1,0 +1,54 @@
+
+var studyArea = ee.FeatureCollection("users/fatemesadat1476/Border");
+var image= ee.Image("USGS/SRTMGL1_003")
+
+var gdem = ee.Image("projects/sat-io/open-datasets/ASTER/GDEM");
+
+
+var data1= image.select('elevation').clip(studyArea)
+print(data1)
+Map.addLayer(data1,{min: 0, max: 308.15}, 'SRTM');
+
+var data2= gdem.clip(studyArea)
+print(data2)
+Map.addLayer(data2,{min: 0, max: 308.15}, 'ASTER');
+
+var slope1 = ee.Terrain.slope(data1);
+var slope2 = ee.Terrain.slope(data2);
+print(slope1)
+
+var terrain = ee.Terrain.products(data2);
+print('ee.Terrain.products bands', terrain.bandNames());
+  
+print(slope1)
+print(data1)
+
+var bands = ee.Image(1).addBands(data1).addBands(data2).rename(["constant", " DEM_SRTM", "DEM_ASTER"]);
+
+var imageRegression = bands.reduceRegion({
+                        reducer: ee.Reducer.linearRegression({numX:2, numY:1}),
+                        geometry: studyArea,
+                        maxPixels: 10e13,
+                        scale: 30,
+                        });
+var coefList = ee.Array(imageRegression.get("coefficients")).toList();
+var intercept = ee.Image(ee.Number(ee.List(coefList.get(0)).get(0)));
+var slope = ee.Image(ee.Number(ee.List(coefList.get(1)).get(0)));
+
+print(intercept)
+
+var DEM= data2.multiply(slope).add(intercept).rename('DEM');
+print(DEM,"DEM")
+Export.image.toDrive({
+  image: DEM,
+  description: 'DEM_Fused',
+  scale: 30,
+  maxPixels: 1e13,
+  region: studyArea
+});
+
+
+
+
+
+

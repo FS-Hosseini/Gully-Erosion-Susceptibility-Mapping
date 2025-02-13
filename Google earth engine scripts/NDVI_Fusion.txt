@@ -1,0 +1,142 @@
+var geometry = ee.FeatureCollection("users/fatemesadat1476/Border");
+
+var startDate = ee.Date('2023-01-01');
+var endDate = ee.Date('2023-12-01');
+Map.centerObject(geometry);
+var startMil = startDate.millis(); 
+var endMil = endDate.millis();
+
+var time = 'system:time_start';
+
+// calling landsat
+
+var landsatNDVI = function(img){
+  var bands = img.select('SR_B[1-7]').multiply(2.75e-05).add(-0.2);
+  var index = bands.normalizedDifference(['SR_B5','SR_B4']).rename('landsatNDVI');
+  return index.clip(geometry)
+  .copyProperties(img,[time]);
+};
+var landsat = ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
+.filterDate(startMil, endMil)
+.filterBounds(geometry)
+.filter(ee.Filter.lt('CLOUD_COVER',5))
+.map(landsatNDVI);
+
+print("ndvi",landsat);
+var modisNDVI = function(img){
+  var bands = img.select('sur_refl_b01','sur_refl_b02').multiply(0.0001);
+  var index = bands.normalizedDifference(['sur_refl_b02','sur_refl_b01']).rename('modisNDVI');
+  return index.clipToBoundsAndScale({geometry: geometry,scale: 250})
+  .copyProperties(img,['system:time_start']);
+};
+
+var modis = ee.ImageCollection("MODIS/006/MOD09GQ")
+.filterDate(startMil, endMil)
+.filterBounds(geometry)
+.map(modisNDVI);
+
+
+// joind data
+
+var tempWind = 1.5;
+var tempDiff = tempWind * 24 * 60 * 60 * 1000;
+
+var join = ee.Join.saveAll({
+  matchesKey: 'ndvi',
+  ordering: time,
+  measureKey: 'timeDiff'
+});
+
+
+var maxDiff = ee.Filter.maxDifference({
+  difference: tempDiff,
+  leftField: time,
+  rightField: time
+});
+
+
+var prior = ee.Filter.greaterThan({
+  leftField: time,
+  rightField: time
+});
+
+var post = ee.Filter.lessThan({
+  leftField: time,
+  rightField: time
+});
+
+
+var filterPrior = ee.Filter.and(maxDiff, prior);
+var filterPost = ee.Filter.and(maxDiff, post);
+
+var filter = ee.Filter.or(filterPrior, filterPost);
+
+
+var joinData = ee.ImageCollection(join.apply(landsat, modis, filter));
+
+
+print('joinData', joinData);
+
+
+// final dataset
+
+
+var dataset = function(img){
+  
+  var modisMax = ee.ImageCollection.fromImages(img.get('ndvi'))
+  .select('modisNDVI').max();
+  
+  return modisMax
+  .addBands(ee.Image(1))
+  .addBands(img.select('landsatNDVI'))
+  .select([0,1,2],['modis','constant','landsat'])
+  .copyProperties(img,['system:time_start']);
+};
+
+
+var ndvi = joinData.map(dataset);
+
+// regression model
+
+var coef = ndvi.reduce(ee.Reducer.linearRegression(2,1)).select('coefficients');
+
+var slope = coef.arrayGet([0,0]);
+var intercept = coef.arrayGet([1,0]);
+
+
+// modelling
+
+var regModel = function(img){
+  var modHigh = img.multiply(slope).add(intercept).rename('modisHigh');
+  return modHigh
+  .copyProperties(img,['system:time_start','system:index']);
+};
+
+var modisNDVI30 = modis.map(regModel);
+
+var modis30 = modisNDVI30
+.filterDate('2023-01-01','2023-12-01')
+.mean();
+print('modis30',modis30);
+
+Export.image.toDrive({
+  image: modis30,
+  description: 'NDVI_Fuse_11Feb',
+  scale: 30,
+  maxPixels: 1e13,
+  region: geometry
+});
+
+var landsat30 = landsat
+.filterDate('2023-01-01','2023-12-01')
+.mean();
+Export.image.toDrive({
+  image:landsat30 ,
+  description: 'landsat30',
+  scale: 30,
+  maxPixels: 1e13,
+  region: geometry
+});
+var ndviParams = {min: -1, max: 1, palette: ['purple', 'pink', 'green']};
+
+Map.addLayer(modis30, ndviParams, 'modis30');

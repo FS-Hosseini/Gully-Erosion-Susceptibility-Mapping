@@ -1,0 +1,68 @@
+var studyArea = ee.FeatureCollection("users/fatemesadat1476/Border"),
+    rainfall_stations = ee.Image("projects/fatisa/assets/Rainfall");
+    
+// https://code.earthengine.google.com/?asset=users/fatemesadat1476/Border
+// https://code.earthengine.google.com/?asset=projects/fatisa/assets/Rainfall
+var precipitationVis = {
+  min: 0.0,
+  max: 50,
+  palette: ['3907ff', '03fff3', '28ff25', 'fbff09', 'ff1105'],
+};
+// The meteorological data has a temporal resolution of 3 hours 
+// and the CHIRPS data has daily temporal resolution and a higher spatial resolution of 0.05 degrees.
+// the fused image provides a temporal resolution of 3 hours and a spatial resolution of 0.05 degrees.
+var rainfall1 = rainfall_stations.clip(studyArea);
+Map.addLayer(rainfall1, precipitationVis, 'rainfall_stations');
+
+var dataset_chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
+                  .filter(ee.Filter.date('2024-01-01', '2024-12-29'))
+                  .filterBounds(studyArea);
+var precipitation_chirps1 = dataset_chirps.select('precipitation');
+var precipitation_chirps = precipitation_chirps1.reduce(ee.Reducer.sum()).clip(studyArea)
+print(precipitation_chirps,'precipitation_chirps')
+var precipitationVis = {
+  min: 1,
+  max: 17,
+  palette: ['001137', '0aab1e', 'e7eb05', 'ff4a2d', 'e90000'],
+};
+Map.addLayer(precipitation_chirps, precipitationVis, 'precipitation_chirps');
+
+var bands = ee.Image(1).addBands(rainfall1).addBands(precipitation_chirps).rename(["constant", "rainfall1", "CHIRPS"]);
+
+var imageRegression = bands.reduceRegion({
+                        reducer: ee.Reducer.linearRegression({numX:2, numY:1}),
+                        geometry: studyArea,
+                        maxPixels: 10e13,
+                        scale: 30,
+                        });
+var coefList = ee.Array(imageRegression.get("coefficients")).toList();
+var intercept = ee.Image(ee.Number(ee.List(coefList.get(0)).get(0)));
+var slope = ee.Image(ee.Number(ee.List(coefList.get(1)).get(0)));
+
+print(slope)
+
+var rainfall1_high= rainfall1.multiply(slope).add(intercept).rename('rainfall1_high');
+print(rainfall1_high)
+Export.image.toDrive({
+  image: rainfall1_high,
+  description: 'rainfall_fused',
+  scale: 30,
+  maxPixels: 1e13,
+  region: studyArea
+});
+var minMax = rainfall1_high.reduceRegion({
+    reducer: ee.Reducer.minMax(),
+    geometry: studyArea,
+    scale: 30,
+    maxPixels: 1e10
+})
+
+print('Min & Max all bands: ', minMax)
+Export.image.toDrive({
+  image: precipitation_chirps,
+  description: 'precipitation_chirps',
+  scale: 30,
+  maxPixels: 1e13,
+  region: studyArea
+});
+Map.addLayer(rainfall1_high, precipitationVis, 'rainfall1_high');

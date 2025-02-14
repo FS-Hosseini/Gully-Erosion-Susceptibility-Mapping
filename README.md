@@ -34,10 +34,14 @@ Gully-Erosion-Susceptibility-Mapping/
 ├── Data/ # Folder containing datasets
 │ ├── Gully_train.csv # Training dataset (70% of data)
 │ ├── Gully_test.csv # Testing dataset (30% of data)
+│ ├── Gully_train_fused.csv # 70% of fused data for training
+│ ├── Gully_test_fused.csv # 30% of fused data for testing 
 │ ├── SA_gully.csv # Dataset for the entire study area
 │ └── SA_Fused.csv # Fused dataset for the entire study area
 ├── Google earth engine scripts/ # Google Earth Engine scripts for data fusion
-├── Python Script/ # Python code for spatial modeling
+├── Python Script/
+│ ├── RF_XGBoost_models.ipynb # Python code for spatial modeling
+│ ├── Dempster_Shafer.ipynb # Fusing gully erosion susceptibility maps (Decision level)
 └── README.md
 ```
 ---
